@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/jhy/catkin_ws/src/CERLAB-UAV-Autonomy/onboard_detector/build/devel/setup.sh

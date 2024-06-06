@@ -2,4 +2,7 @@
 	<rosparam file="$(find onboard_detector)/cfg/fake_detector_param.yaml" />
 	<node pkg="onboard_detector" type="fake_detector_node" name="fake_detector_node" output="screen" />
 
+	<!-- <node pkg="onboard_detector" type="predict.py" name="predict" output="screen" /> -->
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(find remote_control)/rviz/dynamic_navigation.rviz"/>
+
 </launch>

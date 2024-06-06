@@ -1,0 +1,8 @@
+prefix=/home/jhy/catkin_ws/src/CERLAB-UAV-Autonomy/onboard_detector/build/devel
+
+Name: onboard_detector
+Description: Description of onboard_detector
+Version: 1.0.0
+Cflags: -I/home/jhy/catkin_ws/src/CERLAB-UAV-Autonomy/onboard_detector/include
+Libs: -L${prefix}/lib -lonboard_detector
+Requires: roscpp rospy std_msgs

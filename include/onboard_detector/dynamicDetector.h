@@ -14,6 +14,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <vision_msgs/Detection2DArray.h>
 #include <image_transport/image_transport.h>
@@ -27,6 +28,8 @@
 #include <onboard_detector/uvDetector.h>
 #include <onboard_detector/kalmanFilter.h>
 #include <onboard_detector/utils.h>
+#include <onboard_detector/regression.h>
+#include <onboard_detector/gaussian_process_regression.h>
 
 namespace onboardDetector{
     class dynamicDetector{
@@ -49,6 +52,7 @@ namespace onboardDetector{
         ros::Timer trackingTimer_;
         ros::Timer classificationTimer_;
         ros::Timer visTimer_;
+        ros::Timer predTimer_;
         image_transport::Publisher uvDepthMapPub_;
         image_transport::Publisher uDepthMapPub_;
         image_transport::Publisher uvBirdViewPub_;
@@ -63,6 +67,7 @@ namespace onboardDetector{
         ros::Publisher dynamicBBoxesPub_;
         ros::Publisher historyTrajPub_;
         ros::Publisher velVisPub_;
+        ros::Publisher predTrajPub_; //publish obstacle prediction
 
         // DETECTOR
         std::shared_ptr<onboardDetector::UVdetector> uvDetector_;
@@ -94,6 +99,7 @@ namespace onboardDetector{
         double boxIOUThresh_;
         double yoloOverwriteDistance_; // distance that yolo can overwrite the detection results
         int histSize_;
+        int predSize_;
         double dt_;
         double simThresh_;
         int skipFrame_;
@@ -147,6 +153,7 @@ namespace onboardDetector{
         // TRACKING AND ASSOCIATION DATA
         bool newDetectFlag_;
         std::vector<std::deque<onboardDetector::box3D>> boxHist_; // data association result: history of filtered bounding boxes for each box in current frame
+        std::vector<std::deque<onboardDetector::box3D>> boxPred_;
         std::vector<std::deque<std::vector<Eigen::Vector3d>>> pcHist_; // data association result: history of filtered pc clusteres for each pc cluster in current frame
         std::deque<Eigen::Vector3d> positionHist_; // current position
 		std::deque<Eigen::Matrix3d> orientationHist_; // current orientation
@@ -176,6 +183,7 @@ namespace onboardDetector{
         void trackingCB(const ros::TimerEvent&);
         void classificationCB(const ros::TimerEvent&);
         void visCB(const ros::TimerEvent&);
+        void predCB(const ros::TimerEvent&);
 
         // detect function
         void uvDetect();
@@ -212,7 +220,10 @@ namespace onboardDetector{
         void kalmanFilterMatrixAcc(const onboardDetector::box3D& currDetectedBBox, MatrixXd& states, MatrixXd& A, MatrixXd& B, MatrixXd& H, MatrixXd& P, MatrixXd& Q, MatrixXd& R);
         void getKalmanObservationVel(const onboardDetector::box3D& currDetectedBBox, int bestMatchIdx, MatrixXd& Z);
         void getKalmanObservationAcc(const onboardDetector::box3D& currDetectedBBox, int bestMatchIdx, MatrixXd& Z);
-
+        std::vector<std::deque<onboardDetector::box3D>> linearPred();
+        std::vector<std::deque<onboardDetector::box3D>> llsPred(const int &order);
+        std::vector<std::deque<onboardDetector::box3D>> gprPred();
+        // std::vector<std::deque<onboardDetector::box3D>> regressionPred(const int &order);
         // visualization
         void getDynamicPc(std::vector<Eigen::Vector3d>& dynamicPc);
         void publishUVImages(); 
@@ -220,6 +231,7 @@ namespace onboardDetector{
         void publishPoints(const std::vector<Eigen::Vector3d>& points, const ros::Publisher& publisher);
         void publish3dBox(const std::vector<onboardDetector::box3D>& bboxes, const ros::Publisher& publisher, double r, double g, double b);
         void publishHistoryTraj();
+        void publishPredTraj();
         void publishVelVis();
 
         // helper function
@@ -244,6 +256,7 @@ namespace onboardDetector{
 
         // user functions
         void getDynamicObstacles(std::vector<onboardDetector::box3D>& incomeDynamicBBoxes);
+        void getPredObstacles(std::vector<std::vector<Eigen::Vector3d>> &pos, std::vector<std::vector<Eigen::Vector3d>> &vel, std::vector<std::vector<Eigen::Vector3d>> &size);
     };
 
 

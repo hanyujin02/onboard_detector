@@ -269,6 +269,16 @@ namespace onboardDetector{
             std::cout << this->hint_ << ": The history for tracking is set to: " << this->histSize_ << std::endl;
         }  
 
+
+        // prediction size
+        if (not this->nh_.getParam(this->ns_ + "/prediction_size", this->predSize_)){
+            this->predSize_ = 5;
+            std::cout << this->hint_ <<  ": No prediction isze parameter found. Use default: 5." << std::endl;
+        }
+        else{
+            std::cout << this->hint_ <<  ": The prediction size is set to: " << this->predSize_ << std::endl;
+        }  
+
         // time difference
         if (not this->nh_.getParam(this->ns_ + "/time_difference", this->dt_)){
             this->dt_ = 0.033;
@@ -508,6 +518,9 @@ namespace onboardDetector{
         // history trajectory pub
         this->historyTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/history_trajectories", 10);
 
+        // predict trajectory pub
+        this->predTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/prediction_trajectories", 10);
+        
         // velocity visualization pub
         this->velVisPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/velocity_visualizaton", 10);
     }   
@@ -547,6 +560,8 @@ namespace onboardDetector{
     
         // visualization timer
         this->visTimer_ = this->nh_.createTimer(ros::Duration(this->dt_), &dynamicDetector::visCB, this);
+
+        // this->predTimer_ = this->nh_.createTimer(ros::Duration(this->dt_), &dynamicDetector::predCB, this);
     }
 
 
@@ -787,6 +802,34 @@ namespace onboardDetector{
         this->dynamicBBoxes_ = dynamicBBoxesTemp;
     }
 
+    void dynamicDetector::predCB(const ros::TimerEvent&){
+		// this->boxPred_ = this->linearPred();
+		// this->boxPred_ = this->regressionPred();
+        // std::vector<std::deque<onboardDetector::box3D>> pred1 = this->llsPred(1);
+		// std::vector<std::deque<onboardDetector::box3D>> pred2 = this->llsPred(3);
+		// std::vector<std::deque<onboardDetector::box3D>> pred3 = this->llsPred(4);
+
+		// // std::vector<std::vector<std::deque<onboardDetector::box3D>>> pred(pred1.size());
+        // this->boxPred_.clear();
+        // this->boxPred_.resize(pred1.size()+pred2.size()+pred3.size());
+		// for(int i=0; i<pred1.size();i++){
+        //     this->boxPred_.push_back(pred1[i]);
+        // }
+        // for(int i=0; i<pred2.size();i++){
+        //     this->boxPred_.push_back(pred2[i]);
+        // }
+        // for(int i=0; i<pred3.size();i++){
+        //     this->boxPred_.push_back(pred3[i]);
+        // }
+			
+		// }
+
+		// this->obstaclePred_ = this->evaluate(pred);
+
+        // this->boxPred_ = this->gprPred();
+
+	}
+
     void dynamicDetector::visCB(const ros::TimerEvent&){
         this->publishUVImages();
         this->publish3dBox(this->uvBBoxes_, this->uvBBoxesPub_, 0, 1, 0);
@@ -801,6 +844,7 @@ namespace onboardDetector{
         this->publish3dBox(this->trackedBBoxes_, this->trackedBBoxesPub_, 1, 1, 0);
         this->publish3dBox(this->dynamicBBoxes_, this->dynamicBBoxesPub_, 0, 0, 1);
         this->publishHistoryTraj();
+        this->publishPredTraj();
         this->publishVelVis();
     }
 
@@ -1659,7 +1703,165 @@ namespace onboardDetector{
             }
         }
     } 
-    
+
+    std::vector<std::deque<onboardDetector::box3D>> dynamicDetector::linearPred(){
+		std::vector<std::deque<onboardDetector::box3D>> boxPred;
+		boxPred.clear();
+		boxPred.resize(this->dynamicBBoxes_.size());
+		// linear
+		// double dt = 0.1;
+		for(int i=0; i<boxPred.size();i++){
+			onboardDetector::box3D ob = this->dynamicBBoxes_[i];
+			for (int j=0; j<this->predSize_;j++){
+				onboardDetector::box3D predOb;
+				predOb = ob;
+				predOb.x = ob.x+ob.Vx*this->dt_+ob.Ax*1/2*pow(this->dt_,2);
+				predOb.y = ob.y+ob.Vy*this->dt_+ob.Ay*1/2*pow(this->dt_,2);
+				predOb.Vx = ob.Vx+this->dt_*ob.Ax;
+				predOb.Vy = ob.Vy+this->dt_*ob.Ay;
+				boxPred[i].push_back(predOb);
+				ob = predOb;
+			}
+		}
+		
+		return boxPred;
+	}
+
+    std::vector<std::deque<onboardDetector::box3D>> dynamicDetector::llsPred(const int &order){
+        // cout<<"pred"<<endl;
+		std::vector<std::deque<onboardDetector::box3D>> boxPred;
+		boxPred.clear();
+		boxPred.resize(this->dynamicBBoxes_.size());
+		double dt = 0.1;
+		double lambda = 1;
+		for (int i=0; i<this->dynamicBBoxes_.size();i++){
+			onboardDetector::box3D ob = this->dynamicBBoxes_[i];
+			int numberPoints = this->boxHist_[i].size();
+            // if (numberPoints >= 10){
+            Eigen::MatrixXd x,y,t,vx;
+			
+			x.resize(numberPoints,1);
+            vx.resize(numberPoints,1);
+			y.resize(numberPoints,1);
+			t.resize(numberPoints,1);
+			for (int j = 0; j < numberPoints; j++)
+			{
+				x(j,0) = this->boxHist_[i][numberPoints-j].x;
+                vx(j,0) = this->boxHist_[i][numberPoints-j].Vx;
+				y(j,0) = this->boxHist_[i][numberPoints-j].y;
+				t(j,0) = j*dt;
+			}
+			Eigen::MatrixXd X;
+			X.resize(this->predSize_, 1);
+			for (int j=0;j<this->predSize_;j++){
+				X(j,0) = (j+numberPoints)*dt;
+			}
+
+			LLS regressor;
+			Eigen::MatrixXd predx = regressor.pred(t,x,X,order);
+            Eigen::MatrixXd predy = regressor.pred(t,y,X,order);
+
+            onboardDetector::box3D predOb;
+            predOb = ob;
+            // for (int j=0; j<this->predSize_;j++){
+            for (int j=0; j<predx.rows();j++){
+                
+                if (abs(predx(j,0)) <= 40 && abs(predy(j,0)) <= 40){
+                    predOb.x = predx(j,0);
+                    // // +ob.Ax*1/2*pow(dt,2);
+                    predOb.y = predy(j,0);
+                    // predOb.x += predvx(j,0)*this->dt_;
+                    // // // +ob.Ax*1/2*pow(dt,2);
+                    // predOb.y += predvy(j,0)*this->dt_;
+                    // predOb.Vx = predvx(j,0);
+                    // predOb.Vy = predvy(j,0);
+                }
+                // +ob.Ay*1/2*pow(dt,2);
+                // predOb.Vx = ob.Vx+dt*ob.Ax;
+                // predOb.Vy = ob.Vy+dt*ob.Ay;
+                boxPred[i].push_back(predOb);
+            }
+            // }
+
+
+		}	
+		return boxPred;
+	}
+
+    std::vector<std::deque<onboardDetector::box3D>> dynamicDetector::gprPred(){
+        std::vector<std::deque<onboardDetector::box3D>> obstaclePred;
+		// int order = 3;
+		obstaclePred.clear();
+		obstaclePred.resize(this->dynamicBBoxes_.size());
+		double dt = 0.1;
+		double lambda = 1;
+		int inputDim = 1;
+		int outputDim = 1;
+		for (int i=0; i<this->boxHist_.size();i++){
+            if (this->boxHist_[i].size()>=50){
+                onboardDetector::box3D ob = this->dynamicBBoxes_[i];
+                int numberPoints = this->boxHist_[i].size();
+                GaussianProcessRegression<double> gprx(inputDim,outputDim);
+                GaussianProcessRegression<double> gpry(inputDim,outputDim);
+                gprx.ClearTrainingData();
+                gpry.ClearTrainingData();
+                gprx.SetHyperParams(1.1,1.0,0.4);
+                gpry.SetHyperParams(1.1,1.0,0.4);
+                Eigen::MatrixXd input, outputx, outputy, testInput;
+                input.resize(inputDim, 1);
+                outputx.resize(outputDim, 1);
+                outputy.resize(outputDim, 1);
+
+                for (int j=0;j<numberPoints;j++){
+                    input(0,0) = j*dt;
+                    outputx(0,0) = this->boxHist_[i][numberPoints-j].x;
+                    outputy(0,0) = this->boxHist_[i][numberPoints-j].y;
+                    // cout<<outputx<<outputy<<endl;
+                    // cout<<this->boxHist_[i][j].x<<endl;
+                    gprx.AddTrainingData(input,outputx);
+                    gpry.AddTrainingData(input,outputy);
+                }
+
+                // gpr.AddTrainingData(input, output);
+                testInput.resize(inputDim, 1);
+                for (int j=0; j<this->predSize_;j++){
+                    onboardDetector::box3D predOb;
+                    predOb = ob;
+                    testInput(0,0) = (j+numberPoints)*dt;
+                    auto testOutputx = gprx.DoRegression(testInput);
+                    auto testOutputy = gpry.DoRegression(testInput);
+                    predOb.x = testOutputx(0,0);
+                    predOb.y = testOutputy(0,0);
+                    // if (predOb.x<=40 and predOb.y <=40){
+                        obstaclePred[i].push_back(predOb);
+                    // }
+                }
+                // auto testOutput = gpr.DoRegression(testInput);
+                // cout<<"output size:"<<testOutput.rows()<<","<<testOutput.cols()<<endl;
+                // ASSERT_EQ(1, gpr.get_n_data());
+                // assert_matrix_equal<float>(gpr.get_input_data(),input,1e-5);
+                // assert_matrix_equal<float>(gpr.get_output_data(),output,1e-5);
+
+
+                // for (int j=0; j<predx.rows();j++){
+                // 	onboardDetector::box3D predOb;
+                // 	predOb = ob;
+                // 	if (predOb.x<=40 and predOb.y <=40){
+                // 		predOb.x = predx(j,0);
+                // 		// +ob.Ax*1/2*pow(dt,2);
+                // 		predOb.y = predy(j,0);
+                // 	}
+                // 	// +ob.Ay*1/2*pow(dt,2);
+                // 	// predOb.Vx = ob.Vx+dt*ob.Ax;
+                // 	// predOb.Vy = ob.Vy+dt*ob.Ay;
+                // 	obstaclePred[i].push_back(predOb);
+                // }
+            }
+			
+		}	
+		return obstaclePred;
+    }
+
     void dynamicDetector::publishUVImages(){
         sensor_msgs::ImagePtr depthBoxMsg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", this->uvDetector_->depth_show).toImageMsg();
         sensor_msgs::ImagePtr UmapBoxMsg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", this->uvDetector_->U_map_show).toImageMsg();
@@ -1796,7 +1998,7 @@ namespace onboardDetector{
             traj.header.stamp = ros::Time::now();
             traj.ns = "dynamic_detector";
             traj.id = countMarker;
-            traj.type = visualization_msgs::Marker::LINE_LIST;
+            traj.type = visualization_msgs::Marker::LINE_STRIP;
             traj.scale.x = 0.03;
             traj.scale.y = 0.03;
             traj.scale.z = 0.03;
@@ -1804,14 +2006,14 @@ namespace onboardDetector{
             traj.color.r = 0.0;
             traj.color.g = 1.0;
             traj.color.b = 0.0;
-            for (size_t j=0; j<this->boxHist_[i].size()-1; ++j){
-                geometry_msgs::Point p1, p2;
-                onboardDetector::box3D box1 = this->boxHist_[i][j];
-                onboardDetector::box3D box2 = this->boxHist_[i][j+1];
+            for (size_t j=0; j<this->boxHist_[i].size(); ++j){
+                geometry_msgs::Point p1;
+                onboardDetector::box3D box1 = this->boxHist_[i][this->boxHist_[i].size()-j-1];
+                // onboardDetector::box3D box2 = this->boxHist_[i][j+1];
                 p1.x = box1.x; p1.y = box1.y; p1.z = box1.z;
-                p2.x = box2.x; p2.y = box2.y; p2.z = box2.z;
+                // p2.x = box2.x; p2.y = box2.y; p2.z = box2.z;
                 traj.points.push_back(p1);
-                traj.points.push_back(p2);
+                // traj.points.push_back(p2);
             }
 
             ++countMarker;
@@ -1819,6 +2021,43 @@ namespace onboardDetector{
         }
         this->historyTrajPub_.publish(trajMsg);
     }
+
+    void dynamicDetector::publishPredTraj(){
+		if (this->boxPred_.size() != 0){
+			visualization_msgs::MarkerArray trajMsg;
+			int countMarker = 0;
+			for (size_t i=0; i<this->boxPred_.size(); ++i){
+                if (this->boxPred_[i].size() != 0){
+                    visualization_msgs::Marker traj;
+                    traj.header.frame_id = "map";
+                    traj.header.stamp = ros::Time::now();
+                    traj.ns = "fake_detector";
+                    traj.id = countMarker;
+                    traj.type = visualization_msgs::Marker::LINE_LIST;
+                    traj.scale.x = 0.05;
+                    traj.scale.y = 0.05;
+                    traj.scale.z = 0.05;
+                    traj.color.a = 1.0;
+                    traj.color.r = 1.0;
+                    traj.color.g = 0.0;
+                    traj.color.b = 0.0;
+                    for (size_t j=0; j<this->boxPred_[i].size()-1; ++j){
+                        geometry_msgs::Point p1, p2;
+                        onboardDetector::box3D box1 = this->boxPred_[i][j];
+                        onboardDetector::box3D box2 = this->boxPred_[i][j+1];
+                        p1.x = box1.x; p1.y = box1.y; p1.z = box1.z;
+                        p2.x = box2.x; p2.y = box2.y; p2.z = box2.z;
+                        traj.points.push_back(p1);
+                        traj.points.push_back(p2);
+                    }
+
+                    ++countMarker;
+                    trajMsg.markers.push_back(traj);
+                }
+			}
+			this->predTrajPub_.publish(trajMsg);
+		}
+	}
 
     void dynamicDetector::publishVelVis(){ // publish velocities for all tracked objects
         visualization_msgs::MarkerArray velVisMsg;
@@ -1957,6 +2196,24 @@ namespace onboardDetector{
             this->orientationHist_.push_front(this->orientation_);
         }
     }
+
+    void dynamicDetector::getPredObstacles(std::vector<std::vector<Eigen::Vector3d>> &pos, std::vector<std::vector<Eigen::Vector3d>> &vel, std::vector<std::vector<Eigen::Vector3d>> &size){
+		pos.resize(this->boxPred_.size());
+		vel.resize(this->boxPred_.size());
+		size.resize(this->boxPred_.size());
+		for (int i=0; i<this->boxPred_.size();i++){
+			for (int j=0; j<this->boxPred_[i].size();j++){
+				Eigen::Vector3d obPos, obVel, obSize;
+				obPos << this->boxPred_[i][j].x, this->boxPred_[i][j].y, this->boxPred_[i][j].z+this->boxPred_[i][j].z_width/2;
+				obVel << this->boxPred_[i][j].Vx, this->boxPred_[i][j].Vy, 0.0;
+				obSize << this->boxPred_[i][j].x_width, this->boxPred_[i][j].y_width, this->boxPred_[i][j].z_width;
+				pos[i].push_back(obPos);
+				vel[i].push_back(obVel);
+				size[i].push_back(obSize);
+			}
+		}
+		
+	}
 }
 
 
