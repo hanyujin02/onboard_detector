@@ -504,12 +504,17 @@ namespace onboardDetector{
 
         // dynamic bounding box pub
         this->dynamicBBoxesPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/dynamic_bboxes", 10);
-
+        
+        // out of range bounding box pub
+        this->oorBBoxesPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/out_of_range_bboxes", 10);
+        
         // history trajectory pub
         this->historyTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/history_trajectories", 10);
 
         // velocity visualization pub
         this->velVisPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/velocity_visualizaton", 10);
+    
+        this->oorTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/history_oor_trajectories", 10);
     }   
 
     void dynamicDetector::registerCallback(){
@@ -630,15 +635,17 @@ namespace onboardDetector{
         // data association thread
         std::vector<int> bestMatch; // for each current detection, which index of previous obstacle match
         this->boxAssociation(bestMatch);
-
+        std::vector<int> boxOOR;
+        this->getBoxOutofRange(boxOOR, bestMatch);
         // kalman filter tracking
         if (bestMatch.size()){
-            this->kalmanFilterAndUpdateHist(bestMatch);
+            this->kalmanFilterAndUpdateHist(bestMatch, boxOOR);
         }
         else {
             this->boxHist_.clear();
             this->pcHist_.clear();
         }
+        
     }
 
     void dynamicDetector::classificationCB(const ros::TimerEvent&){
@@ -648,141 +655,159 @@ namespace onboardDetector{
         // Iterate through all pointcloud/bounding boxes history (note that yolo's pointclouds are dummy pointcloud (empty))
         // NOTE: There are 3 cases which we don't need to perform dynamic obstacle identification.
         for (size_t i=0; i<this->pcHist_.size() ; ++i){
-            // ===================================================================================
-            // CASE I: yolo recognized as dynamic dynamic obstacle
-            if (this->boxHist_[i][0].is_human){
-                dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);
-                continue;
-            }
-            // ===================================================================================
-
-
-            // ===================================================================================
-            // CASE II: history length is not enough to run classification
-            int curFrameGap;
-            if (int(this->pcHist_[i].size()) < this->skipFrame_+1){
-                curFrameGap = this->pcHist_[i].size() - 1;
+            if (this->boxHist_[i][0].is_estimated){
+                onboardDetector::box3D estimatedBBox;
+                this->getEstimateBox(this->boxHist_[i], estimatedBBox);
+                dynamicBBoxesTemp.push_back(estimatedBBox);
             }
             else{
-                curFrameGap = this->skipFrame_;
-            }
-            // ===================================================================================
-
-
-            // ==================================================================================
-            // CASE III: Force Dynamic (if the obstacle is classifed as dynamic for several time steps)
-            int dynaFrames = 0;
-            if (int(this->boxHist_[i].size()) > this->forceDynaCheckRange_){
-                for (int j=1 ; j<this->forceDynaCheckRange_+1 ; ++j){
-                    if (this->boxHist_[i][j].is_dynamic){
-                        ++dynaFrames;
-                    }
-                }
-            }
-
-            if (dynaFrames >= this->forceDynaFrames_){
-                this->boxHist_[i][0].is_dynamic = true;
-                dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);
-                continue;
-            }
-            // ===================================================================================
-
-            std::vector<Eigen::Vector3d> currPc = this->pcHist_[i][0];
-            std::vector<Eigen::Vector3d> prevPc = this->pcHist_[i][curFrameGap];
-            Eigen::Vector3d Vcur(0.,0.,0.); // single point velocity 
-            Eigen::Vector3d Vbox(0.,0.,0.); // bounding box velocity 
-            Eigen::Vector3d Vkf(0.,0.,0.);  // velocity estimated from kalman filter
-            int numPoints = currPc.size(); // it changes within loop
-            int votes = 0;
-
-            Vbox(0) = (this->boxHist_[i][0].x - this->boxHist_[i][curFrameGap].x)/(this->dt_*curFrameGap);
-            Vbox(1) = (this->boxHist_[i][0].y - this->boxHist_[i][curFrameGap].y)/(this->dt_*curFrameGap);
-            Vbox(2) = (this->boxHist_[i][0].z - this->boxHist_[i][curFrameGap].z)/(this->dt_*curFrameGap);
-            Vkf(0) = this->boxHist_[i][0].Vx;
-            Vkf(1) = this->boxHist_[i][0].Vy;
-
-            // find nearest neighbor
-            int numSkip = 0;
-            for (size_t j=0 ; j<currPc.size() ; ++j){
-                // don't perform classification for points unseen in previous frame
-                if (!this->isInFov(this->positionHist_[curFrameGap], this->orientationHist_[curFrameGap], currPc[j])){
-                    ++numSkip;
-                    --numPoints;
+                // ===================================================================================
+                // CASE I: yolo recognized as dynamic dynamic obstacle
+                if (this->boxHist_[i][0].is_human){
+                    dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);
                     continue;
                 }
+                // ===================================================================================
 
-                double minDist = 2;
-                Eigen::Vector3d nearestVect;
-                for (size_t k=0 ; k<prevPc.size() ; k++){ // find the nearest point in the previous pointcloud
-                    double dist = (currPc[j]-prevPc[k]).norm();
-                    if (abs(dist) < minDist){
-                        minDist = dist;
-                        nearestVect = currPc[j]-prevPc[k];
-                    }
-                }
-                Vcur = nearestVect/(this->dt_*curFrameGap); Vcur(2) = 0;
-                double velSim = Vcur.dot(Vbox)/(Vcur.norm()*Vbox.norm());
 
-                if (velSim < 0){
-                    ++numSkip;
-                    --numPoints;
+                // ===================================================================================
+                // CASE II: history length is not enough to run classification
+                int curFrameGap;
+                if (int(this->pcHist_[i].size()) < this->skipFrame_+1){
+                    // cout<<"hist not long enough"<<endl;
+                    curFrameGap = this->pcHist_[i].size() - 1;
                 }
                 else{
-                    if (Vcur.norm()>this->dynaVelThresh_){
-                        ++votes;
-                    }
+                    curFrameGap = this->skipFrame_;
                 }
-            }
-            
-            
-            // update dynamic boxes
-            double voteRatio = (numPoints>0)?double(votes)/double(numPoints):0;
-            double velNorm = Vkf.norm();
+                // ===================================================================================
 
-            // voting and velocity threshold
-            // 1. point cloud voting ratio.
-            // 2. velocity (from kalman filter) 
-            // 3. enough valid point correspondence 
-            if (voteRatio>=this->dynaVoteThresh_ && velNorm>=this->dynaVelThresh_ && double(numSkip)/double(numPoints)<this->maxSkipRatio_){
-                this->boxHist_[i][0].is_dynamic_candidate = true;
-                // dynamic-consistency check
-                int dynaConsistCount = 0;
-                if (int(this->boxHist_[i].size()) >= this->dynamicConsistThresh_){
-                    for (int j=0 ; j<this->dynamicConsistThresh_; ++j){
-                        if (this->boxHist_[i][j].is_dynamic_candidate){
-                            ++dynaConsistCount;
+
+                // ==================================================================================
+                // CASE III: Force Dynamic (if the obstacle is classifed as dynamic for several time steps)
+                int dynaFrames = 0;
+                if (int(this->boxHist_[i].size()) > this->forceDynaCheckRange_){
+                    for (int j=1 ; j<this->forceDynaCheckRange_+1 ; ++j){
+                        if (this->boxHist_[i][j].is_dynamic){
+                            ++dynaFrames;
                         }
                     }
-                }            
-                if (dynaConsistCount == this->dynamicConsistThresh_){
-                    // set as dynamic and push into history
-                    this->boxHist_[i][0].is_dynamic = true;
-                    dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);    
                 }
-            }
-        }
 
-        // filter the dynamic obstacles based on the target sizes
-        if (this->constrainSize_){
-            std::vector<onboardDetector::box3D> dynamicBBoxesBeforeConstrain = dynamicBBoxesTemp;
-            dynamicBBoxesTemp.clear();
 
-            for (onboardDetector::box3D ob : dynamicBBoxesBeforeConstrain){
-                bool findMatch = false;
-                for (Eigen::Vector3d targetSize : this->targetObjectSize_){
-                    double xdiff = std::abs(ob.x_width - targetSize(0));
-                    double ydiff = std::abs(ob.y_width - targetSize(1));
-                    double zdiff = std::abs(ob.z_width - targetSize(2)); 
-                    if (xdiff < 0.5 and ydiff < 0.5 and zdiff < 0.5){
-                        findMatch = true;
+                if (dynaFrames >= this->forceDynaFrames_){
+                    this->boxHist_[i][0].is_dynamic = true;
+                    dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);
+                    continue;
+                }
+                // ===================================================================================
+
+                std::vector<Eigen::Vector3d> currPc = this->pcHist_[i][0];
+                std::vector<Eigen::Vector3d> prevPc = this->pcHist_[i][curFrameGap];
+                Eigen::Vector3d Vcur(0.,0.,0.); // single point velocity 
+                Eigen::Vector3d Vbox(0.,0.,0.); // bounding box velocity 
+                Eigen::Vector3d Vkf(0.,0.,0.);  // velocity estimated from kalman filter
+                int numPoints = currPc.size(); // it changes within loop
+                int votes = 0;
+
+                Vbox(0) = (this->boxHist_[i][0].x - this->boxHist_[i][curFrameGap].x)/(this->dt_*curFrameGap);
+                Vbox(1) = (this->boxHist_[i][0].y - this->boxHist_[i][curFrameGap].y)/(this->dt_*curFrameGap);
+                Vbox(2) = (this->boxHist_[i][0].z - this->boxHist_[i][curFrameGap].z)/(this->dt_*curFrameGap);
+                Vkf(0) = this->boxHist_[i][0].Vx;
+                Vkf(1) = this->boxHist_[i][0].Vy;
+
+                // find nearest neighbor
+                int numSkip = 0;
+                for (size_t j=0 ; j<currPc.size() ; ++j){
+                    // don't perform classification for points unseen in previous frame
+                    if (!this->isInFov(this->positionHist_[curFrameGap], this->orientationHist_[curFrameGap], currPc[j])){
+                        ++numSkip;
+                        --numPoints;
+                        continue;
+                    }
+
+                    double minDist = 2;
+                    Eigen::Vector3d nearestVect;
+                    for (size_t k=0 ; k<prevPc.size() ; k++){ // find the nearest point in the previous pointcloud
+                        double dist = (currPc[j]-prevPc[k]).norm();
+                        if (abs(dist) < minDist){
+                            minDist = dist;
+                            nearestVect = currPc[j]-prevPc[k];
+                        }
+                    }
+                    Vcur = nearestVect/(this->dt_*curFrameGap); Vcur(2) = 0;
+                    double velSim = Vcur.dot(Vbox)/(Vcur.norm()*Vbox.norm());
+
+                    if (velSim < 0){
+                        ++numSkip;
+                        --numPoints;
+                    }
+                    else{
+                        if (Vcur.norm()>this->dynaVelThresh_){
+                            ++votes;
+                        }
                     }
                 }
+                
+                
+                // update dynamic boxes
+                double voteRatio = (numPoints>0)?double(votes)/double(numPoints):0;
+                double velNorm = Vkf.norm();
 
-                if (findMatch){
-                    dynamicBBoxesTemp.push_back(ob);
+                // voting and velocity threshold
+                // 1. point cloud voting ratio.
+                // 2. velocity (from kalman filter) 
+                // 3. enough valid point correspondence 
+                if (voteRatio>=this->dynaVoteThresh_ && velNorm>=this->dynaVelThresh_ && double(numSkip)/double(numPoints)<this->maxSkipRatio_){
+                    this->boxHist_[i][0].is_dynamic_candidate = true;
+                    // dynamic-consistency check
+                    int dynaConsistCount = 0;
+                    if (int(this->boxHist_[i].size()) >= this->dynamicConsistThresh_){
+                        for (int j=0 ; j<this->dynamicConsistThresh_; ++j){
+                            if (this->boxHist_[i][j].is_dynamic_candidate){
+                                ++dynaConsistCount;
+                            }
+                        }
+                    }            
+                    if (dynaConsistCount == this->dynamicConsistThresh_){
+                        // set as dynamic and push into history
+                        this->boxHist_[i][0].is_dynamic = true;
+                        dynamicBBoxesTemp.push_back(this->boxHist_[i][0]);    
+                    }
                 }
             }
         }
+
+        // // filter the dynamic obstacles based on the target sizes
+        // if (this->constrainSize_){
+        //     std::vector<onboardDetector::box3D> dynamicBBoxesBeforeConstrain = dynamicBBoxesTemp;
+        //     dynamicBBoxesTemp.clear();
+
+        //     for (onboardDetector::box3D ob : dynamicBBoxesBeforeConstrain){
+        //         if (ob.is_estimated){
+        //             dynamicBBoxesTemp.push_back(ob);
+        //         }
+        //         else{
+        //             bool findMatch = false;
+        //             for (Eigen::Vector3d targetSize : this->targetObjectSize_){
+        //                 double xdiff = std::abs(ob.x_width - targetSize(0));
+        //                 double ydiff = std::abs(ob.y_width - targetSize(1));
+        //                 double zdiff = std::abs(ob.z_width - targetSize(2)); 
+        //                 if (xdiff < 0.5 and ydiff < 0.5 and zdiff < 0.5){
+        //                     findMatch = true;
+        //                 }
+        //             }
+
+        //             if (findMatch){
+        //                 dynamicBBoxesTemp.push_back(ob);
+        //             }
+        //             else{
+        //                 cout<<"1"<<endl;
+        //             }
+        //         }
+        //     }
+        // }
+
 
         this->dynamicBBoxes_ = dynamicBBoxesTemp;
     }
@@ -800,8 +825,10 @@ namespace onboardDetector{
         this->publish3dBox(this->filteredBBoxes_, this->filteredBBoxesPub_, 0, 1, 1);
         this->publish3dBox(this->trackedBBoxes_, this->trackedBBoxesPub_, 1, 1, 0);
         this->publish3dBox(this->dynamicBBoxes_, this->dynamicBBoxesPub_, 0, 0, 1);
+        this->publish3dBox(this->oorBBoxes_, this->oorBBoxesPub_, 1, 0, 0);
         this->publishHistoryTraj();
         this->publishVelVis();
+        this->publishoorTraj();
     }
 
     void dynamicDetector::uvDetect(){
@@ -1342,7 +1369,6 @@ namespace onboardDetector{
 
     void dynamicDetector::boxAssociation(std::vector<int>& bestMatch){
         int numObjs = this->filteredBBoxes_.size();
-        
         if (this->boxHist_.size() == 0){ // initialize new bounding box history if no history exists
             this->boxHist_.resize(numObjs);
             this->pcHist_.resize(numObjs);
@@ -1364,6 +1390,7 @@ namespace onboardDetector{
                 this->boxAssociationHelper(bestMatch);
             }
         }
+        //
 
         this->newDetectFlag_ = false; // the most recent detection has been associated
     }
@@ -1395,21 +1422,39 @@ namespace onboardDetector{
     }
 
     void dynamicDetector::genFeatHelper(std::vector<Eigen::VectorXd>& features, const std::vector<onboardDetector::box3D>& boxes){ 
-        Eigen::VectorXd featureWeights(10); // 3pos + 3size + 1 pc length + 3 pc std
+        Eigen::VectorXd featureWeights(10), estimateFeatureWeights(10); // 3pos + 3size + 1 pc length + 3 pc std
         featureWeights << 2, 2, 2, 1, 1, 1, 0.5, 0.5, 0.5, 0.5;
+        estimateFeatureWeights << 0.5, 0.5, 0.5, 2, 2, 2, 0.5, 0.5, 0.5, 0.5;
         for (size_t i=0 ; i<boxes.size() ; i++){
-            Eigen::VectorXd feature(10);
-            features[i] = feature;
-            features[i](0) = (boxes[i].x - this->position_(0)) * featureWeights(0) ;
-            features[i](1) = (boxes[i].y - this->position_(1)) * featureWeights(1);
-            features[i](2) = (boxes[i].z - this->position_(2)) * featureWeights(2);
-            features[i](3) = boxes[i].x_width * featureWeights(3);
-            features[i](4) = boxes[i].y_width * featureWeights(4);
-            features[i](5) = boxes[i].z_width * featureWeights(5);
-            features[i](6) = this->filteredPcClusters_[i].size() * featureWeights(6);
-            features[i](7) = this->filteredPcClusterStds_[i](0) * featureWeights(7);
-            features[i](8) = this->filteredPcClusterStds_[i](1) * featureWeights(8);
-            features[i](9) = this->filteredPcClusterStds_[i](2) * featureWeights(9);
+            if (boxes[i].is_estimated){
+                Eigen::VectorXd feature(10);
+                features[i] = feature;
+                features[i](0) = (boxes[i].x - this->position_(0)) * estimateFeatureWeights(0) ;
+                features[i](1) = (boxes[i].y - this->position_(1)) * estimateFeatureWeights(1);
+                features[i](2) = (boxes[i].z - this->position_(2)) * estimateFeatureWeights(2);
+                features[i](3) = boxes[i].x_width * estimateFeatureWeights(3);
+                features[i](4) = boxes[i].y_width * estimateFeatureWeights(4);
+                features[i](5) = boxes[i].z_width * estimateFeatureWeights(5);
+                features[i](6) = this->filteredPcClusters_[i].size() * estimateFeatureWeights(6);
+                features[i](7) = this->filteredPcClusterStds_[i](0) * estimateFeatureWeights(7);
+                features[i](8) = this->filteredPcClusterStds_[i](1) * estimateFeatureWeights(8);
+                features[i](9) = this->filteredPcClusterStds_[i](2) * estimateFeatureWeights(9);
+            }
+            else{
+                Eigen::VectorXd feature(10);
+                features[i] = feature;
+                features[i](0) = (boxes[i].x - this->position_(0)) * featureWeights(0) ;
+                features[i](1) = (boxes[i].y - this->position_(1)) * featureWeights(1);
+                features[i](2) = (boxes[i].z - this->position_(2)) * featureWeights(2);
+                features[i](3) = boxes[i].x_width * featureWeights(3);
+                features[i](4) = boxes[i].y_width * featureWeights(4);
+                features[i](5) = boxes[i].z_width * featureWeights(5);
+                features[i](6) = this->filteredPcClusters_[i].size() * featureWeights(6);
+                features[i](7) = this->filteredPcClusterStds_[i](0) * featureWeights(7);
+                features[i](8) = this->filteredPcClusterStds_[i](1) * featureWeights(8);
+                features[i](9) = this->filteredPcClusterStds_[i](2) * featureWeights(9);
+            }
+            
         }
     }
 
@@ -1452,8 +1497,36 @@ namespace onboardDetector{
         }
     }
 
+    void dynamicDetector::getBoxOutofRange(std::vector<int>& boxOOR, const std::vector<int>&bestMatch){
+        this->oorBBoxes_.clear();
+        if(this->boxHist_.size()>0){
 
-    void dynamicDetector::kalmanFilterAndUpdateHist(const std::vector<int>& bestMatch){
+            boxOOR.resize(this->boxHist_.size(),1);
+            // this->oorHist_.clear();
+            for (int i=0; i<bestMatch.size();i++){
+                boxOOR[bestMatch[i]] = 0;
+            }
+            for (int i=0; i<boxOOR.size();i++){
+                if (boxOOR[i] and this->boxHist_[i][0].is_dynamic){
+                    // cout<<"dynamic obstacle out of range"<<endl;
+                }
+                else{
+                    boxOOR[i] = 0;
+                }
+            }
+            
+            for (int i=0; i<boxOOR.size(); i++){
+                if (boxOOR[i]){
+                    this->oorBBoxes_.push_back(this->boxHist_[i][0]);
+                    // this->oorHist_.push_back(this->boxHist_[i]);
+                }
+            }
+        }
+        
+
+    }
+
+    void dynamicDetector::kalmanFilterAndUpdateHist(const std::vector<int>& bestMatch, const std::vector<int>& boxOOR){
         std::vector<std::deque<onboardDetector::box3D>> boxHistTemp; 
         std::vector<std::deque<std::vector<Eigen::Vector3d>>> pcHistTemp;
         std::vector<onboardDetector::kalman_filter> filtersTemp;
@@ -1497,6 +1570,7 @@ namespace onboardDetector{
                 newEstimatedBBox.z_width = currDetectedBBox.z_width;
                 newEstimatedBBox.is_dynamic = currDetectedBBox.is_dynamic;
                 newEstimatedBBox.is_human = currDetectedBBox.is_human;
+                newEstimatedBBox.is_estimated = false;
             }
             else{
                 boxHistTemp.push_back(newSingleBoxHist);
@@ -1526,6 +1600,56 @@ namespace onboardDetector{
             // update new tracked bounding boxes
             trackedBBoxesTemp.push_back(newEstimatedBBox);
         }
+        for (int i =0;i<boxOOR.size();i++){
+            onboardDetector::box3D newEstimatedBBox; // from kalman filter and this->getEstimateFrameNum(this->boxHist_[i])<=50
+            if (boxOOR[i] and this->getEstimateFrameNum(this->boxHist_[i])<this->histSize_){
+                // cout<<"estimate frame num"<<this->getEstimateFrameNum(this->boxHist_[i])<<endl;
+                boxHistTemp.push_back(this->boxHist_[i]);
+                pcHistTemp.push_back(this->pcHist_[i]);
+                filtersTemp.push_back(this->filters_[i]);
+
+                // // kalman filter to get new state estimation
+                onboardDetector::box3D currDetectedBBox = this->boxHist_[i][0];
+                currDetectedBBox.x += this->dt_* currDetectedBBox.Vx;
+                currDetectedBBox.y += this->dt_* currDetectedBBox.Vy;
+
+                Eigen::MatrixXd Z;
+                this->getKalmanObservationAcc(currDetectedBBox, i, Z);
+                filtersTemp.back().estimate(Z, MatrixXd::Zero(6,1));
+                
+                
+                newEstimatedBBox.x = filtersTemp.back().output(0);
+                newEstimatedBBox.y = filtersTemp.back().output(1);
+                newEstimatedBBox.z = currDetectedBBox.z;
+                newEstimatedBBox.Vx = filtersTemp.back().output(2);
+                newEstimatedBBox.Vy = filtersTemp.back().output(3);
+                newEstimatedBBox.Ax = filtersTemp.back().output(4);
+                newEstimatedBBox.Ay = filtersTemp.back().output(5);   
+                          
+                
+                newEstimatedBBox.x_width = currDetectedBBox.x_width;
+                newEstimatedBBox.y_width = currDetectedBBox.y_width;
+                newEstimatedBBox.z_width = currDetectedBBox.z_width;
+                newEstimatedBBox.is_dynamic = true;
+                newEstimatedBBox.is_human = currDetectedBBox.is_human;
+                newEstimatedBBox.is_estimated = true;
+
+            // }
+            // // // pop old data if len of hist > size limit
+            if (int(boxHistTemp.back().size()) == this->histSize_){
+                boxHistTemp.back().pop_back();
+                pcHistTemp.back().pop_back();
+            }
+
+            // // // push new data into history
+            boxHistTemp.back().push_front(newEstimatedBBox);
+            pcHistTemp.back().push_front(this->pcHist_[i][0]);
+            // // // // update new tracked bounding boxes
+            trackedBBoxesTemp.push_back(newEstimatedBBox);
+            // 
+            }
+        }
+
 
         if (boxHistTemp.size()){
             for (size_t i=0; i<trackedBBoxesTemp.size(); ++i){ 
@@ -1540,7 +1664,6 @@ namespace onboardDetector{
                         boxHistTemp[i][0].y_width = trackedBBoxesTemp[i].y_width;
                         boxHistTemp[i][0].z_width = trackedBBoxesTemp[i].z_width;
                     }
-
                 }
             }
         }
@@ -1553,6 +1676,38 @@ namespace onboardDetector{
         // update tracked bounding boxes
         this->trackedBBoxes_=  trackedBBoxesTemp;
 
+    }
+
+    void dynamicDetector::getEstimateBox(const std::deque<onboardDetector::box3D> &boxHist, onboardDetector::box3D &estimatedBBox){
+        onboardDetector::box3D lastDetect;
+        for (int i=0; i<boxHist.size();i++){
+            if (not boxHist[i].is_estimated){
+                lastDetect = boxHist[i];
+                break;
+            }
+        }
+        estimatedBBox.x = boxHist[0].x - (boxHist[0].x-lastDetect.x)/2;
+        estimatedBBox.y = boxHist[0].y - (boxHist[0].y-lastDetect.y)/2;
+        estimatedBBox.z = boxHist[0].z;
+        estimatedBBox.x_width = (boxHist[0].x-lastDetect.x) + boxHist[0].x_width;
+        estimatedBBox.y_width = (boxHist[0].y-lastDetect.y) + boxHist[0].y_width;
+        estimatedBBox.z_width = boxHist[0].z_width;
+        estimatedBBox.is_estimated = true;
+    }
+
+    int dynamicDetector::getEstimateFrameNum(const std::deque<onboardDetector::box3D> &boxHist){
+        int frameNum = 0;
+        onboardDetector::box3D lastDetect;
+        for (int i=0; i<boxHist.size();i++){
+            if (boxHist[i].is_estimated){
+                frameNum++;
+            }
+            else{
+                lastDetect = boxHist[i];
+                break;
+            }
+        }
+        return frameNum;
     }
 
     void dynamicDetector::kalmanFilterMatrixVel(const onboardDetector::box3D& currDetectedBBox, MatrixXd& states, MatrixXd& A, MatrixXd& B, MatrixXd& H, MatrixXd& P, MatrixXd& Q, MatrixXd& R){
@@ -1673,7 +1828,6 @@ namespace onboardDetector{
         sensor_msgs::ImagePtr detectedAlignedImgMsg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", this->detectedAlignedDepthImg_).toImageMsg();
         this->detectedAlignedDepthImgPub_.publish(detectedAlignedImgMsg);
     }
-
 
     void dynamicDetector::publishPoints(const std::vector<Eigen::Vector3d>& points, const ros::Publisher& publisher){
         pcl::PointXYZ pt;
@@ -1818,6 +1972,40 @@ namespace onboardDetector{
             trajMsg.markers.push_back(traj);
         }
         this->historyTrajPub_.publish(trajMsg);
+    }
+
+    void dynamicDetector::publishoorTraj(){
+        visualization_msgs::MarkerArray trajMsg;
+        int countMarker = 0;
+        for (size_t i=0; i<this->oorHist_.size(); ++i){
+            visualization_msgs::Marker traj;
+            traj.header.frame_id = "map";
+            traj.header.stamp = ros::Time::now();
+            traj.ns = "dynamic_detector";
+            traj.id = countMarker;
+            traj.type = visualization_msgs::Marker::LINE_LIST;
+            traj.scale.x = 0.03;
+            traj.scale.y = 0.03;
+            traj.scale.z = 0.03;
+            traj.color.a = 1.0; // Don't forget to set the alpha!
+            traj.color.r = 0.0;
+            traj.color.g = 1.0;
+            traj.color.b = 0.0;
+            for (size_t j=0; j<this->oorHist_[i].size()-1; ++j){
+                geometry_msgs::Point p1, p2;
+                onboardDetector::box3D box1 = this->oorHist_[i][j];
+                onboardDetector::box3D box2 = this->oorHist_[i][j+1];
+                p1.x = box1.x; p1.y = box1.y; p1.z = box1.z;
+                p2.x = box2.x; p2.y = box2.y; p2.z = box2.z;
+                traj.points.push_back(p1);
+                traj.points.push_back(p2);
+            }
+
+            ++countMarker;
+            trajMsg.markers.push_back(traj);
+        }
+        this->oorTrajPub_.publish(trajMsg);
+        // this->historyTrajPub_.publish(trajMsg);
     }
 
     void dynamicDetector::publishVelVis(){ // publish velocities for all tracked objects

@@ -1,14 +1,17 @@
 localization_mode: 0 # 0: pose (default) 1: odom
 
-depth_image_topic: /camera/depth/image_rect_raw
+depth_image_topic: /camera/depth/image_raw
 aligned_depth_image_topic: /camera/aligned_depth_to_color/image_raw
-pose_topic: /mavros/local_position/pose
-odom_topic: /mavros/local_position/odom
-
+# pose_topic: /mavros/local_position/pose
+# odom_topic: /mavros/local_position/odom
+pose_topic: /CERLAB/quadcopter/pose
+odom_topic: /CERLAB/quadcopter/odom
 
 # Camera Parameters
+# depth_intrinsics: [387.1536560058594, 387.1536560058594, 321.3246154785156, 233.5471954345703] # fx,  fy, cx, cy realsense
+# color_intrinsics: [604.404296875, 604.404296875, 325.03704833984375, 245.77059936523438] # intel realsense
 depth_intrinsics: [387.1536560058594, 387.1536560058594, 321.3246154785156, 233.5471954345703] # fx,  fy, cx, cy realsense
-color_intrinsics: [604.404296875, 604.404296875, 325.03704833984375, 245.77059936523438] # intel realsense
+color_intrinsics: [554.254691191187, 554.254691191187, 320.5, 240.5] # intel realsense
 depth_scale_factor: 1000 # 1000 for Intel Realsense Camera
 depth_min_value: 0.5
 depth_max_value: 5.0
@@ -64,8 +67,8 @@ frame_skip: 5 # num of frames skiped when comparing 2 point clouds
 dynamic_velocity_threshold: 0.15
 dynamic_voting_threshold: 0.8
 maximum_skip_ratio: 0.5 # the upper limit of points that are skipped(out of previous FOV) to be classfified as dynamic
-frames_force_dynamic: 10 # Range of searching dynamic obstacles in box history
-frames_force_dynamic_check_range: 30 # threshold for forcing dynamic obstacles
+frames_force_dynamic: 20 # Range of searching dynamic obstacles in box history
+frames_force_dynamic_check_range: 50 # threshold for forcing dynamic obstacles
 dynamic_consistency_threshold: 1 # obstacles being voted as dynamic for continuous k frames are eligible to be classified as dynamic
 
 # constrain size

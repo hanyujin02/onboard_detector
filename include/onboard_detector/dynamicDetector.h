@@ -63,6 +63,8 @@ namespace onboardDetector{
         ros::Publisher dynamicBBoxesPub_;
         ros::Publisher historyTrajPub_;
         ros::Publisher velVisPub_;
+        ros::Publisher oorBBoxesPub_;
+        ros::Publisher oorTrajPub_;
 
         // DETECTOR
         std::shared_ptr<onboardDetector::UVdetector> uvDetector_;
@@ -142,11 +144,13 @@ namespace onboardDetector{
         std::vector<Eigen::Vector3d> filteredPcClusterStds_; // filtered pointcloud cluster standard deviation in each axis
         std::vector<onboardDetector::box3D> trackedBBoxes_; // bboxes tracked from kalman filtering
         std::vector<onboardDetector::box3D> dynamicBBoxes_; // boxes classified as dynamic
+        std::vector<onboardDetector::box3D> oorBBoxes_; // boxes classified as out of range
         // std::vector<int> recentDynaFrames_; // recent number of frames being detected as dynamic for each obstacle
 
         // TRACKING AND ASSOCIATION DATA
         bool newDetectFlag_;
         std::vector<std::deque<onboardDetector::box3D>> boxHist_; // data association result: history of filtered bounding boxes for each box in current frame
+        std::deque<std::deque<onboardDetector::box3D>> oorHist_;
         std::vector<std::deque<std::vector<Eigen::Vector3d>>> pcHist_; // data association result: history of filtered pc clusteres for each pc cluster in current frame
         std::deque<Eigen::Vector3d> positionHist_; // current position
 		std::deque<Eigen::Matrix3d> orientationHist_; // current orientation
@@ -207,11 +211,14 @@ namespace onboardDetector{
         void genFeatHelper(std::vector<Eigen::VectorXd>& feature, const std::vector<onboardDetector::box3D>& boxes);
         void linearProp(std::vector<onboardDetector::box3D>& propedBoxes);
         void findBestMatch(const std::vector<Eigen::VectorXd>& propedBoxesFeat, const std::vector<Eigen::VectorXd>& currBoxesFeat, const std::vector<onboardDetector::box3D>& propedBoxes, std::vector<int>& bestMatch);
-        void kalmanFilterAndUpdateHist(const std::vector<int>& bestMatch);
+        void kalmanFilterAndUpdateHist(const std::vector<int>& bestMatch, const std::vector<int>& boxOOR);
         void kalmanFilterMatrixVel(const onboardDetector::box3D& currDetectedBBox, MatrixXd& states, MatrixXd& A, MatrixXd& B, MatrixXd& H, MatrixXd& P, MatrixXd& Q, MatrixXd& R);
         void kalmanFilterMatrixAcc(const onboardDetector::box3D& currDetectedBBox, MatrixXd& states, MatrixXd& A, MatrixXd& B, MatrixXd& H, MatrixXd& P, MatrixXd& Q, MatrixXd& R);
         void getKalmanObservationVel(const onboardDetector::box3D& currDetectedBBox, int bestMatchIdx, MatrixXd& Z);
         void getKalmanObservationAcc(const onboardDetector::box3D& currDetectedBBox, int bestMatchIdx, MatrixXd& Z);
+        void getBoxOutofRange(std::vector<int>& boxOOR, const std::vector<int>&bestMatch); 
+        void getEstimateBox(const std::deque<onboardDetector::box3D> &boxHist, onboardDetector::box3D &estimatedBBox);
+        int getEstimateFrameNum(const std::deque<onboardDetector::box3D> &boxHist);
 
         // visualization
         void getDynamicPc(std::vector<Eigen::Vector3d>& dynamicPc);
@@ -219,8 +226,10 @@ namespace onboardDetector{
         void publishYoloImages();
         void publishPoints(const std::vector<Eigen::Vector3d>& points, const ros::Publisher& publisher);
         void publish3dBox(const std::vector<onboardDetector::box3D>& bboxes, const ros::Publisher& publisher, double r, double g, double b);
+        void publish3dBox(const std::deque<onboardDetector::box3D>& bboxes, const ros::Publisher& publisher, double r, double g, double b);
         void publishHistoryTraj();
         void publishVelVis();
+        void publishoorTraj();
 
         // helper function
         void transformBBox(const Eigen::Vector3d& center, const Eigen::Vector3d& size, const Eigen::Vector3d& position, const Eigen::Matrix3d& orientation,
