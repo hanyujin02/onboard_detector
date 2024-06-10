@@ -638,7 +638,7 @@ namespace onboardDetector{
         std::vector<int> boxOOR;
         this->getBoxOutofRange(boxOOR, bestMatch);
         // kalman filter tracking
-        if (bestMatch.size()){
+        if (this->boxHist_.size()){
             this->kalmanFilterAndUpdateHist(bestMatch, boxOOR);
         }
         else {
@@ -1479,6 +1479,7 @@ namespace onboardDetector{
             int bestMatchInd = -1;
             for (size_t j=0 ; j<propedBoxes.size() ; j++){
                 double sim = propedBoxesFeat[j].dot(currBoxesFeat[i])/(propedBoxesFeat[j].norm()*currBoxesFeat[i].norm());
+                cout<<"box"<< i<< "sim: "<<sim<<endl;
                 if (sim >= bestSim){
                     bestSim = sim;
                     bestSims[i] = sim;
@@ -1602,7 +1603,7 @@ namespace onboardDetector{
         }
         for (int i =0;i<boxOOR.size();i++){
             onboardDetector::box3D newEstimatedBBox; // from kalman filter and this->getEstimateFrameNum(this->boxHist_[i])<=50
-            if (boxOOR[i] and this->getEstimateFrameNum(this->boxHist_[i])<this->histSize_){
+            if (boxOOR[i] and this->getEstimateFrameNum(this->boxHist_[i])<this->histSize_-1){
                 // cout<<"estimate frame num"<<this->getEstimateFrameNum(this->boxHist_[i])<<endl;
                 boxHistTemp.push_back(this->boxHist_[i]);
                 pcHistTemp.push_back(this->pcHist_[i]);
@@ -1689,8 +1690,8 @@ namespace onboardDetector{
         estimatedBBox.x = boxHist[0].x - (boxHist[0].x-lastDetect.x)/2;
         estimatedBBox.y = boxHist[0].y - (boxHist[0].y-lastDetect.y)/2;
         estimatedBBox.z = boxHist[0].z;
-        estimatedBBox.x_width = (boxHist[0].x-lastDetect.x) + boxHist[0].x_width;
-        estimatedBBox.y_width = (boxHist[0].y-lastDetect.y) + boxHist[0].y_width;
+        estimatedBBox.x_width = abs(boxHist[0].x-lastDetect.x) + boxHist[0].x_width;
+        estimatedBBox.y_width = abs(boxHist[0].y-lastDetect.y) + boxHist[0].y_width;
         estimatedBBox.z_width = boxHist[0].z_width;
         estimatedBBox.is_estimated = true;
     }
