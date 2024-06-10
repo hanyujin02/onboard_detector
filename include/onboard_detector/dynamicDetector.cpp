@@ -1424,23 +1424,23 @@ namespace onboardDetector{
     void dynamicDetector::genFeatHelper(std::vector<Eigen::VectorXd>& features, const std::vector<onboardDetector::box3D>& boxes){ 
         Eigen::VectorXd featureWeights(10), estimateFeatureWeights(10); // 3pos + 3size + 1 pc length + 3 pc std
         featureWeights << 2, 2, 2, 1, 1, 1, 0.5, 0.5, 0.5, 0.5;
-        estimateFeatureWeights << 0.5, 0.5, 0.5, 2, 2, 2, 0.5, 0.5, 0.5, 0.5;
+        // estimateFeatureWeights << 0.5, 0.5, 0.5, 2, 2, 2, 0.5, 0.5, 0.5, 0.5;
         for (size_t i=0 ; i<boxes.size() ; i++){
-            if (boxes[i].is_estimated){
-                Eigen::VectorXd feature(10);
-                features[i] = feature;
-                features[i](0) = (boxes[i].x - this->position_(0)) * estimateFeatureWeights(0) ;
-                features[i](1) = (boxes[i].y - this->position_(1)) * estimateFeatureWeights(1);
-                features[i](2) = (boxes[i].z - this->position_(2)) * estimateFeatureWeights(2);
-                features[i](3) = boxes[i].x_width * estimateFeatureWeights(3);
-                features[i](4) = boxes[i].y_width * estimateFeatureWeights(4);
-                features[i](5) = boxes[i].z_width * estimateFeatureWeights(5);
-                features[i](6) = this->filteredPcClusters_[i].size() * estimateFeatureWeights(6);
-                features[i](7) = this->filteredPcClusterStds_[i](0) * estimateFeatureWeights(7);
-                features[i](8) = this->filteredPcClusterStds_[i](1) * estimateFeatureWeights(8);
-                features[i](9) = this->filteredPcClusterStds_[i](2) * estimateFeatureWeights(9);
-            }
-            else{
+            // if (boxes[i].is_estimated){
+            //     Eigen::VectorXd feature(10);
+            //     features[i] = feature;
+            //     features[i](0) = (boxes[i].x - this->position_(0)) * estimateFeatureWeights(0) ;
+            //     features[i](1) = (boxes[i].y - this->position_(1)) * estimateFeatureWeights(1);
+            //     features[i](2) = (boxes[i].z - this->position_(2)) * estimateFeatureWeights(2);
+            //     features[i](3) = boxes[i].x_width * estimateFeatureWeights(3);
+            //     features[i](4) = boxes[i].y_width * estimateFeatureWeights(4);
+            //     features[i](5) = boxes[i].z_width * estimateFeatureWeights(5);
+            //     features[i](6) = this->filteredPcClusters_[i].size() * estimateFeatureWeights(6);
+            //     features[i](7) = this->filteredPcClusterStds_[i](0) * estimateFeatureWeights(7);
+            //     features[i](8) = this->filteredPcClusterStds_[i](1) * estimateFeatureWeights(8);
+            //     features[i](9) = this->filteredPcClusterStds_[i](2) * estimateFeatureWeights(9);
+            // }
+            // else{
                 Eigen::VectorXd feature(10);
                 features[i] = feature;
                 features[i](0) = (boxes[i].x - this->position_(0)) * featureWeights(0) ;
@@ -1453,7 +1453,7 @@ namespace onboardDetector{
                 features[i](7) = this->filteredPcClusterStds_[i](0) * featureWeights(7);
                 features[i](8) = this->filteredPcClusterStds_[i](1) * featureWeights(8);
                 features[i](9) = this->filteredPcClusterStds_[i](2) * featureWeights(9);
-            }
+            // }
             
         }
     }
@@ -1479,7 +1479,6 @@ namespace onboardDetector{
             int bestMatchInd = -1;
             for (size_t j=0 ; j<propedBoxes.size() ; j++){
                 double sim = propedBoxesFeat[j].dot(currBoxesFeat[i])/(propedBoxesFeat[j].norm()*currBoxesFeat[i].norm());
-                cout<<"box"<< i<< "sim: "<<sim<<endl;
                 if (sim >= bestSim){
                     bestSim = sim;
                     bestSims[i] = sim;
@@ -1508,7 +1507,7 @@ namespace onboardDetector{
                 boxOOR[bestMatch[i]] = 0;
             }
             for (int i=0; i<boxOOR.size();i++){
-                if (boxOOR[i] and this->boxHist_[i][0].is_dynamic){
+                if (boxOOR[i] and this->boxHist_[i][0].is_dynamic ){
                     // cout<<"dynamic obstacle out of range"<<endl;
                 }
                 else{
@@ -1613,27 +1612,35 @@ namespace onboardDetector{
                 onboardDetector::box3D currDetectedBBox = this->boxHist_[i][0];
                 currDetectedBBox.x += this->dt_* currDetectedBBox.Vx;
                 currDetectedBBox.y += this->dt_* currDetectedBBox.Vy;
+                Eigen::Vector3d point;
+                point<< currDetectedBBox.x, currDetectedBBox.y, currDetectedBBox.z;
+                if(this->isInFov(this->position_, this->orientation_,point)){
+                    newEstimatedBBox = this->boxHist_[i][0];
+                    newEstimatedBBox.is_estimated = true;
+                    newEstimatedBBox.is_dynamic = true;
+                }
+                else{
 
-                Eigen::MatrixXd Z;
-                this->getKalmanObservationAcc(currDetectedBBox, i, Z);
-                filtersTemp.back().estimate(Z, MatrixXd::Zero(6,1));
-                
-                
-                newEstimatedBBox.x = filtersTemp.back().output(0);
-                newEstimatedBBox.y = filtersTemp.back().output(1);
-                newEstimatedBBox.z = currDetectedBBox.z;
-                newEstimatedBBox.Vx = filtersTemp.back().output(2);
-                newEstimatedBBox.Vy = filtersTemp.back().output(3);
-                newEstimatedBBox.Ax = filtersTemp.back().output(4);
-                newEstimatedBBox.Ay = filtersTemp.back().output(5);   
-                          
-                
-                newEstimatedBBox.x_width = currDetectedBBox.x_width;
-                newEstimatedBBox.y_width = currDetectedBBox.y_width;
-                newEstimatedBBox.z_width = currDetectedBBox.z_width;
-                newEstimatedBBox.is_dynamic = true;
-                newEstimatedBBox.is_human = currDetectedBBox.is_human;
-                newEstimatedBBox.is_estimated = true;
+                    Eigen::MatrixXd Z;
+                    this->getKalmanObservationAcc(currDetectedBBox, i, Z);
+                    filtersTemp.back().estimate(Z, MatrixXd::Zero(6,1));
+                    
+                    newEstimatedBBox.x = filtersTemp.back().output(0);
+                    newEstimatedBBox.y = filtersTemp.back().output(1);
+                    newEstimatedBBox.z = currDetectedBBox.z;
+                    newEstimatedBBox.Vx = filtersTemp.back().output(2);
+                    newEstimatedBBox.Vy = filtersTemp.back().output(3);
+                    newEstimatedBBox.Ax = filtersTemp.back().output(4);
+                    newEstimatedBBox.Ay = filtersTemp.back().output(5);   
+                            
+                    
+                    newEstimatedBBox.x_width = currDetectedBBox.x_width;
+                    newEstimatedBBox.y_width = currDetectedBBox.y_width;
+                    newEstimatedBBox.z_width = currDetectedBBox.z_width;
+                    newEstimatedBBox.is_dynamic = true;
+                    newEstimatedBBox.is_human = currDetectedBBox.is_human;
+                    newEstimatedBBox.is_estimated = true;
+                }
 
             // }
             // // // pop old data if len of hist > size limit
