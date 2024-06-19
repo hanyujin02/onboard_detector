@@ -540,6 +540,8 @@ namespace onboardDetector{
 
         // velocity visualization pub
         this->velVisPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/velocity_visualizaton", 10);
+
+        this->propedBBoxesPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(this->ns_ + "/proped_bboxes", 10);
     }   
 
     void dynamicDetector::registerCallback(){
@@ -873,6 +875,7 @@ namespace onboardDetector{
         this->publish3dBox(this->filteredBBoxes_, this->filteredBBoxesPub_, 0, 1, 1);
         this->publish3dBox(this->trackedBBoxes_, this->trackedBBoxesPub_, 1, 1, 0);
         this->publish3dBox(this->dynamicBBoxes_, this->dynamicBBoxesPub_, 0, 0, 1);
+        this->publish3dBox(this->propBBoxes_, this->propedBBoxesPub_, 1, 1, 1);
         this->publishHistoryTraj();
         this->publishVelVis();
     }
@@ -1562,6 +1565,8 @@ namespace onboardDetector{
 
         // linear propagation: prediction of previous box in current frame
         this->linearProp(propedBoxes);
+        this->propBBoxes_ = propedBoxes;
+        // this->publish3dBox()
 
         // generate feature
         this->genFeat(propedBoxes, numObjs, propedBoxesFeat, currBoxesFeat);

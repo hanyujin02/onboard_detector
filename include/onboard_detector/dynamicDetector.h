@@ -65,6 +65,7 @@ namespace onboardDetector{
         ros::Publisher dynamicBBoxesPub_;
         ros::Publisher historyTrajPub_;
         ros::Publisher velVisPub_;
+        ros::Publisher propedBBoxesPub_;
 
         // DETECTOR
         std::shared_ptr<onboardDetector::UVdetector> uvDetector_;
@@ -147,6 +148,7 @@ namespace onboardDetector{
         std::vector<Eigen::Vector3d> filteredPcClusterStds_; // filtered pointcloud cluster standard deviation in each axis
         std::vector<onboardDetector::box3D> trackedBBoxes_; // bboxes tracked from kalman filtering
         std::vector<onboardDetector::box3D> dynamicBBoxes_; // boxes classified as dynamic
+        std::vector<onboardDetector::box3D> propBBoxes_;
         // std::vector<int> recentDynaFrames_; // recent number of frames being detected as dynamic for each obstacle
 
         // TRACKING AND ASSOCIATION DATA
