@@ -9,6 +9,17 @@
 namespace onboardDetector{
 	fakeDetector::fakeDetector(const ros::NodeHandle& nh) : nh_(nh){
 		// load ros parameter:
+		if (not this->nh_.getParam("use_mocap", this->useMocap_)){
+			this->useMocap_ = false;
+			cout << "[Fake Detector]: No use mocap param. Use default value." << endl;
+		}
+
+		if (this->useMocap_){
+			if (not this->nh_.getParam("obstacle_size", this->obstacleSize_)){
+				this->obstacleSize_ = std::vector<double>{0.5,0.5,1.8};
+				cout << "[Fake Detector]: No use obstacle size param. Use default value." << endl;
+			}
+		}
 		if (not this->nh_.getParam("target_obstacle", this->targetObstacle_)){
 			this->targetObstacle_ = std::vector<std::string> {"person", "obstacle"};
 			cout << "[Fake Detector]: No target obstacle param. Use default value." << endl;
@@ -41,7 +52,13 @@ namespace onboardDetector{
 
 
 		this->firstTime_ = true;
-		this->gazeboSub_ = this->nh_.subscribe("/gazebo/model_states", 10, &fakeDetector::stateCB, this);
+		if (this->useMocap_){
+			this->mocapSub_ = this->nh_.subscribe("/mocap/model_states",10, &fakeDetector::posCB, this);
+		}
+		else{
+			this->gazeboSub_ = this->nh_.subscribe("/gazebo/model_states", 10, &fakeDetector::stateCB, this);
+		}
+
 		this->odomSub_ = this->nh_.subscribe(odomTopicName, 10, &fakeDetector::odomCB, this);
 		// this->odomSub_ = this->nh_.subscribe("/mavros/local_position/odom", 10, &fakeDetector::odomCB, this);
 		this->historyTrajPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("onboard_detector/history_trajectories", 10);
@@ -194,6 +211,53 @@ namespace onboardDetector{
 		this->obstacleMsg_ = obVec;
 		// ros::Rate r (60);
 		// r.sleep();
+	}
+
+	void fakeDetector::posCB(const nav_msgs::PathConstPtr& obPoses){
+		bool update = false;
+		std::vector<onboardDetector::box3D> obVec;
+		// geometry_msgs::PoseStamped p;
+		nav_msgs::Path p;
+		p = *obPoses;
+		onboardDetector::box3D ob;
+		
+		for (int i=0;i<int(p.poses.size());i++){
+			ob.x = p.poses[i].pose.position.x;
+			ob.y = p.poses[i].pose.position.y;
+			ob.z = p.poses[i].pose.position.z;
+			if (this->lastObVec_.size() == 0){
+				ob.Vx = 0.0;
+				ob.Vy = 0.0;
+				ob.Vz = 0.0;
+				ros::Time lastTime = ros::Time::now();
+				this->lastTimeVec_.push_back(lastTime);
+				this->lastTimeVel_.push_back(std::vector<double> {0, 0, 0});
+				update = true;
+			}
+			else{
+				ros::Time currTime = ros::Time::now();
+				double dT = (currTime.toSec() - this->lastTimeVec_[i].toSec());
+				double vx = (ob.x - this->lastObVec_[i].x)/dT;
+				double vy = (ob.y - this->lastObVec_[i].y)/dT;
+				double vz = (ob.z - this->lastObVec_[i].z)/dT;
+				ob.Vx = vx;
+				ob.Vy = vy;
+				ob.Vz = vz;
+				this->lastTimeVel_[i][0] = vx;
+				this->lastTimeVel_[i][1] = vy;
+				this->lastTimeVel_[i][2] = vz;
+				this->lastTimeVec_[i] = ros::Time::now();
+				update = true;
+			}
+			ob.x_width = this->obstacleSize_[0];
+			ob.y_width = this->obstacleSize_[1];
+			ob.z_width = this->obstacleSize_[2];
+			obVec.push_back(ob);
+		}
+		if (update){
+			this->lastObVec_ = obVec;
+		}
+		this->obstacleMsg_ = obVec;
 	}
 
 	void fakeDetector::odomCB(const nav_msgs::OdometryConstPtr& odom){
