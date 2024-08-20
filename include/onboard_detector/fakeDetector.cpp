@@ -224,7 +224,7 @@ namespace onboardDetector{
 		for (int i=0;i<int(p.poses.size());i++){
 			ob.x = p.poses[i].pose.position.x;
 			ob.y = p.poses[i].pose.position.y;
-			ob.z = p.poses[i].pose.position.z;
+			ob.z = this->obstacleSize_[2]/2;
 			if (this->lastObVec_.size() == 0){
 				ob.Vx = 0.0;
 				ob.Vy = 0.0;
@@ -237,17 +237,25 @@ namespace onboardDetector{
 			else{
 				ros::Time currTime = ros::Time::now();
 				double dT = (currTime.toSec() - this->lastTimeVec_[i].toSec());
-				double vx = (ob.x - this->lastObVec_[i].x)/dT;
-				double vy = (ob.y - this->lastObVec_[i].y)/dT;
-				double vz = (ob.z - this->lastObVec_[i].z)/dT;
-				ob.Vx = vx;
-				ob.Vy = vy;
-				ob.Vz = vz;
-				this->lastTimeVel_[i][0] = vx;
-				this->lastTimeVel_[i][1] = vy;
-				this->lastTimeVel_[i][2] = vz;
-				this->lastTimeVec_[i] = ros::Time::now();
-				update = true;
+				if (dT >= 0.1){
+					double vx = (ob.x - this->lastObVec_[i].x)/dT;
+					double vy = (ob.y - this->lastObVec_[i].y)/dT;
+					double vz = (ob.z - this->lastObVec_[i].z)/dT;
+					ob.Vx = vx;
+					ob.Vy = vy;
+					ob.Vz = vz;
+					this->lastTimeVel_[i][0] = vx;
+					this->lastTimeVel_[i][1] = vy;
+					this->lastTimeVel_[i][2] = vz;
+					this->lastTimeVec_[i] = ros::Time::now();
+					update = true;
+					
+				}
+				else{
+					ob.Vx = this->lastTimeVel_[i][0];
+					ob.Vy = this->lastTimeVel_[i][1];
+					ob.Vz = this->lastTimeVel_[i][2];
+				}
 			}
 			ob.x_width = this->obstacleSize_[0];
 			ob.y_width = this->obstacleSize_[1];
