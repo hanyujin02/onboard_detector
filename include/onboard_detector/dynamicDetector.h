@@ -264,7 +264,9 @@ namespace onboardDetector{
         void getDynamicObstacles(std::vector<onboardDetector::box3D>& incomeDynamicBBoxes, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
         void getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, 
 									 std::vector<std::vector<Eigen::Vector3d>>& velHist, 
-									 std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
+									 std::vector<std::vector<Eigen::Vector3d>>& accHist, 
+                                     std::vector<std::vector<Eigen::Vector3d>>& sizeHist,
+                                     const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
     };
 
 

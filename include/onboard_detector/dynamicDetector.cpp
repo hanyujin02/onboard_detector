@@ -2345,10 +2345,11 @@ namespace onboardDetector{
         }
     }
 
-    void dynamicDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize){
+    void dynamicDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& accHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize){
 		posHist.clear();
         velHist.clear();
         sizeHist.clear();
+        accHist.clear();
 
         if (this->boxHist_.size()){
             for (size_t i=0 ; i<this->boxHist_.size() ; ++i){
@@ -2368,19 +2369,22 @@ namespace onboardDetector{
                         findMatch = true;
                     }
                     if (findMatch){
-                        std::vector<Eigen::Vector3d> obPosHist, obVelHist, obSizeHist;
+                        std::vector<Eigen::Vector3d> obPosHist, obVelHist, obSizeHist, obAccHist;
                         for (size_t j=0; j<this->boxHist_[i].size() ; ++j){
                             Eigen::Vector3d pos(this->boxHist_[i][j].x, this->boxHist_[i][j].y, this->boxHist_[i][j].z);
                             Eigen::Vector3d vel(this->boxHist_[i][j].Vx, this->boxHist_[i][j].Vy, 0);
                             Eigen::Vector3d size(this->boxHist_[i][j].x_width, this->boxHist_[i][j].y_width, this->boxHist_[i][j].z_width);
+                            Eigen::Vector3d acc(this->boxHist_[i][j].Ax, this->boxHist_[i][j].Ay, 0);
                             size += robotSize;
                             obPosHist.push_back(pos);
                             obVelHist.push_back(vel);
                             obSizeHist.push_back(size);
+                            obAccHist.push_back(acc);
                         }
                         posHist.push_back(obPosHist);
                         velHist.push_back(obVelHist);
                         sizeHist.push_back(obSizeHist);
+                        accHist.push_back(obAccHist);
                     }
                 }
             }

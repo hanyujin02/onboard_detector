@@ -159,9 +159,13 @@ namespace onboardDetector{
 				ob.Vx = 0.0;
 				ob.Vy = 0.0;
 				ob.Vz = 0.0;
+				ob.Ax = 0.0;
+				ob.Ay = 0.0;
+				ob.Az = 0.0;
 				ros::Time lastTime = ros::Time::now();
 				this->lastTimeVec_.push_back(lastTime);
 				this->lastTimeVel_.push_back(std::vector<double> {0, 0, 0});
+				this->lastTimeAcc_.push_back(std::vector<double> {0, 0, 0});
 				update = true;
 			}
 			else{
@@ -178,12 +182,26 @@ namespace onboardDetector{
 					this->lastTimeVel_[i][1] = vy;
 					this->lastTimeVel_[i][2] = vz;
 					this->lastTimeVec_[i] = ros::Time::now();
+
+					double ax = (ob.Vx - this->lastObVec_[i].Vx)/dT;
+					double ay = (ob.Vy - this->lastObVec_[i].Vy)/dT;
+					double az = (ob.Vz - this->lastObVec_[i].Vz)/dT;
+					ob.Ax = ax;
+					ob.Ay = ay;
+					ob.Az = az;
+					this->lastTimeAcc_[i][0] = ax;
+					this->lastTimeAcc_[i][1] = ay;
+					this->lastTimeAcc_[i][2] = az;
+
 					update = true;
 				}
 				else{
 					ob.Vx = this->lastTimeVel_[i][0];
 					ob.Vy = this->lastTimeVel_[i][1];
 					ob.Vz = this->lastTimeVel_[i][2];
+					ob.Ax = this->lastTimeAcc_[i][0];
+					ob.Ay = this->lastTimeAcc_[i][1];
+					ob.Az = this->lastTimeAcc_[i][2];
 				}
 			}
 			// 2. get size (gazebo name contains size):
@@ -229,9 +247,13 @@ namespace onboardDetector{
 				ob.Vx = 0.0;
 				ob.Vy = 0.0;
 				ob.Vz = 0.0;
+				ob.Ax = 0.0;
+				ob.Ay = 0.0;
+				ob.Az = 0.0;
 				ros::Time lastTime = ros::Time::now();
 				this->lastTimeVec_.push_back(lastTime);
 				this->lastTimeVel_.push_back(std::vector<double> {0, 0, 0});
+				this->lastTimeAcc_.push_back(std::vector<double> {0, 0, 0});
 				update = true;
 			}
 			else{
@@ -248,13 +270,27 @@ namespace onboardDetector{
 					this->lastTimeVel_[i][1] = vy;
 					this->lastTimeVel_[i][2] = vz;
 					this->lastTimeVec_[i] = ros::Time::now();
-					update = true;
+					
+					double ax = (ob.Vx - this->lastObVec_[i].Vx)/dT;
+					double ay = (ob.Vy - this->lastObVec_[i].Vy)/dT;
+					double az = (ob.Vz - this->lastObVec_[i].Vz)/dT;
+					ob.Ax = ax;
+					ob.Ay = ay;
+					ob.Az = az;
+					this->lastTimeAcc_[i][0] = ax;
+					this->lastTimeAcc_[i][1] = ay;
+					this->lastTimeAcc_[i][2] = az;
+					
+					update = true;					
 					
 				}
 				else{
 					ob.Vx = this->lastTimeVel_[i][0];
 					ob.Vy = this->lastTimeVel_[i][1];
 					ob.Vz = this->lastTimeVel_[i][2];
+					ob.Ax = this->lastTimeAcc_[i][0];
+					ob.Ay = this->lastTimeAcc_[i][1];
+					ob.Az = this->lastTimeAcc_[i][2];
 				}
 			}
 			ob.x_width = this->obstacleSize_[0];
@@ -460,26 +496,30 @@ namespace onboardDetector{
 		}
 	}
 
-	void fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize){
+	void fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& accHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize){
 		posHist.clear();
         velHist.clear();
+		accHist.clear();
         sizeHist.clear();
 
         if (this->obstacleHist_.size()){
             for (size_t i=0 ; i<this->obstacleHist_.size() ; ++i){
 				if (this->isObstacleInSensorRange(this->obstacleHist_[i][0],2*M_PI)){
-					std::vector<Eigen::Vector3d> obPosHist, obVelHist, obSizeHist;
+					std::vector<Eigen::Vector3d> obPosHist, obVelHist, obAccHist, obSizeHist;
 					for (size_t j=0; j<this->obstacleHist_[i].size() ; ++j){
 						Eigen::Vector3d pos(this->obstacleHist_[i][j].x, this->obstacleHist_[i][j].y, this->obstacleHist_[i][j].z);
 						Eigen::Vector3d vel(this->obstacleHist_[i][j].Vx, this->obstacleHist_[i][j].Vy, 0);
+						Eigen::Vector3d acc(this->obstacleHist_[i][j].Ax, this->obstacleHist_[i][j].Ay, 0);
 						Eigen::Vector3d size(this->obstacleHist_[i][j].x_width, this->obstacleHist_[i][j].y_width, this->obstacleHist_[i][j].z_width);
 						size += robotSize;
 						obPosHist.push_back(pos);
 						obVelHist.push_back(vel);
+						obAccHist.push_back(acc);
 						obSizeHist.push_back(size);
 					}
 					posHist.push_back(obPosHist);
 					velHist.push_back(obVelHist);
+					accHist.push_back(obAccHist);
 					sizeHist.push_back(obSizeHist);
 				}
             }

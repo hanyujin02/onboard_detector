@@ -45,6 +45,7 @@ namespace onboardDetector{
 		std::vector<onboardDetector::box3D> lastObVec_;
 		std::vector<ros::Time> lastTimeVec_;
 		std::vector<std::vector<double>> lastTimeVel_;
+		std::vector<std::vector<double>> lastTimeAcc_;
 		std::vector<std::deque<onboardDetector::box3D>> obstacleHist_;
 
 		// visualization:
@@ -71,7 +72,7 @@ namespace onboardDetector{
 		bool isObstacleInSensorRange(const onboardDetector::box3D& ob, double fov);
 		void getObstacles(std::vector<onboardDetector::box3D>& obstacles, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
 		void getObstaclesInSensorRange(double fov, std::vector<onboardDetector::box3D>& obstacles, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
-		void getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
+		void getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& accHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize = Eigen::Vector3d(0.0,0.0,0.0));
 	};
 }
 
