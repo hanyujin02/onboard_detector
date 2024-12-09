@@ -580,6 +580,9 @@ namespace onboardDetector{
     
         // visualization timer
         this->visTimer_ = this->nh_.createTimer(ros::Duration(this->dt_), &dynamicDetector::visCB, this);
+        
+		// get dynamic obstacle service
+		this->getDynamicObstacleServer_ = this->nh_.advertiseService("onboard_detector/getDynamicObstacles", &dynamicDetector::getDynamicObstacles, this);
     }
 
     bool dynamicDetector::getDynamicObstacles(onboard_detector::GetDynamicObstacles::Request& req, 
@@ -1780,8 +1783,8 @@ namespace onboardDetector{
         estimatedBBox.x = boxHist[0].x - (boxHist[0].x-lastDetect.x)/2;
         estimatedBBox.y = boxHist[0].y - (boxHist[0].y-lastDetect.y)/2;
         estimatedBBox.z = boxHist[0].z;
-        estimatedBBox.x_width = abs(boxHist[0].x-lastDetect.x) + boxHist[0].x_width;
-        estimatedBBox.y_width = abs(boxHist[0].y-lastDetect.y) + boxHist[0].y_width;
+        estimatedBBox.x_width = std::min(std::abs(boxHist[0].x-lastDetect.x) + boxHist[0].x_width, 1.5 * boxHist[0].x_width);
+        estimatedBBox.y_width = std::min(std::abs(boxHist[0].y-lastDetect.y) + boxHist[0].y_width, 1.5 * boxHist[0].y_width);
         estimatedBBox.z_width = boxHist[0].z_width;
         estimatedBBox.is_estimated = true;
     }
