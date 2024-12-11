@@ -1868,6 +1868,8 @@ namespace onboardDetector{
                     currDetectedBBox = this->boxHist_[i][0];
                     currDetectedBBox.x += this->dt_* currDetectedBBox.Vx;
                     currDetectedBBox.y += this->dt_* currDetectedBBox.Vy;
+                    currDetectedBBox.Vx += this->dt_* currDetectedBBox.Ax;
+                    currDetectedBBox.Vy += this->dt_* currDetectedBBox.Ay;
 
                     boxHistTemp.push_back(this->boxHist_[i]);
                     pcHistTemp.push_back(this->pcHist_[i]);
