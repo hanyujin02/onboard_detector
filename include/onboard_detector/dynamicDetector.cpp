@@ -1876,16 +1876,18 @@ namespace onboardDetector{
                     filtersTemp.push_back(this->filters_[i]);
 
                     Eigen::MatrixXd Z;
-                    this->getKalmanObservationAcc(currDetectedBBox, i, Z);
-                    filtersTemp.back().estimate(Z, MatrixXd::Zero(6,1));
+                    // this->getKalmanObservationAcc(currDetectedBBox, i, Z);
+                    this->getKalmanObservationVel(currDetectedBBox, i, Z);
+                    // filtersTemp.back().estimate(Z, MatrixXd::Zero(6,1));
+                    filtersTemp.back().estimate(Z, MatrixXd::Zero(4,1));
                     
                     newEstimatedBBox.x = filtersTemp.back().output(0);
                     newEstimatedBBox.y = filtersTemp.back().output(1);
                     newEstimatedBBox.z = currDetectedBBox.z;
                     newEstimatedBBox.Vx = filtersTemp.back().output(2);
                     newEstimatedBBox.Vy = filtersTemp.back().output(3);
-                    newEstimatedBBox.Ax = filtersTemp.back().output(4);
-                    newEstimatedBBox.Ay = filtersTemp.back().output(5);   
+                    // newEstimatedBBox.Ax = filtersTemp.back().output(4);
+                    // newEstimatedBBox.Ay = filtersTemp.back().output(5);   
                             
                     
                     newEstimatedBBox.x_width = currDetectedBBox.x_width;
